@@ -88,10 +88,61 @@ export class EDAAppStack extends cdk.Stack {
       displayName: "New Image topic",
     });
 
-    newImageTopic.addSubscription(
-      new subs.SqsSubscription(imageProcessQueue)
+        const addMetadataFn = new lambdanode.NodejsFunction(
+      this,
+      "addMetadataFn",
+      {
+        runtime: lambda.Runtime.NODEJS_22_X,
+        entry: `${__dirname}/../lambdas/addImageMetadata.ts`,
+        timeout: cdk.Duration.seconds(15),
+        memorySize: 128,
+        environment: {
+          TABLE_NAME: imagesTable.tableName,
+        },
+      }
     );
-    newImageTopic.addSubscription(new subs.SqsSubscription(mailerQ));
+
+
+        newImageTopic.addSubscription(
+      new subs.SqsSubscription(imageProcessQueue, {
+        filterPolicyWithMessageBody: {
+          Records: sns.FilterOrPolicy.policy({
+            s3: sns.FilterOrPolicy.policy({
+              object: sns.FilterOrPolicy.policy({
+                key: sns.FilterOrPolicy.filter(
+                  sns.SubscriptionFilter.stringFilter({
+                    matchSuffixes: [".jpeg", ".jpg", ".png"],
+                  })
+                ),
+              }),
+            }),
+          }),
+        },
+      })
+    );
+
+
+        newImageTopic.addSubscription(
+      new subs.SqsSubscription(mailerQ, {
+        filterPolicyWithMessageBody: {
+          Records: sns.FilterOrPolicy.policy({
+            s3: sns.FilterOrPolicy.policy({
+              object: sns.FilterOrPolicy.policy({
+                key: sns.FilterOrPolicy.filter(
+                  sns.SubscriptionFilter.stringFilter({
+                    matchSuffixes: [".jpeg", ".jpg", ".png"],
+                  })
+                ),
+              }),
+            }),
+          }),
+        },
+      })
+    );
+
+
+
+
     // Lambda functions
 
         const persistImageDataFn = new lambdanode.NodejsFunction(
@@ -141,6 +192,9 @@ export class EDAAppStack extends cdk.Stack {
 
     imagesTable.grantWriteData(persistImageDataFn);
 
+    imagesTable.grantReadWriteData(addMetadataFn);
+
+
         mailerFn.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
@@ -153,11 +207,20 @@ export class EDAAppStack extends cdk.Stack {
       })
     );
 
+        new cdk.CfnOutput(this, "SNS Topic ARN", {
+      value: newImageTopic.topicArn,
+    });
+
 
   }
 
   
+
+  
 }
+
+
+
 
   
 
